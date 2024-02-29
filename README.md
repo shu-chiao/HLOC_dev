@@ -26,6 +26,7 @@ Build 3D maps with Structure-from-Motion and localize any Internet image right f
 
 ```bash
 git clone --recursive https://github.com/cvg/Hierarchical-Localization/
+(git submodule update --init --recursive)
 cd Hierarchical-Localization/
 python -m pip install -e .
 ```
