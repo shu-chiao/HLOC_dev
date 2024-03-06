@@ -43,6 +43,14 @@ confs = {
             "sinkhorn_iterations": 50,
         },
     },
+    "superglue-in": {
+        "output": "matches-superglue-in",
+        "model": {
+            "name": "superglue",
+            "weights": "indoor",
+            "sinkhorn_iterations": 20,
+        },
+    },
     "superglue-fast": {
         "output": "matches-superglue-it5",
         "model": {

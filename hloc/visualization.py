@@ -19,6 +19,7 @@ def visualize_sfm_2d(
     if not selected:
         image_ids = reconstruction.reg_image_ids()
         selected = random.Random(seed).sample(image_ids, min(n, len(image_ids)))
+        print("Auto select: ", selected, type(selected))
 
     for i in selected:
         image = reconstruction.images[i]
