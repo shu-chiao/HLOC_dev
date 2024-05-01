@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 import h5py
+import pickle
 import numpy as np
 import torch
 
@@ -53,21 +54,34 @@ def pairs_from_score_matrix(
     num_select: int,
     min_score: Optional[float] = None,
 ):
+    """
+    Arg:
+        invalid: np.array(N, N), diagonal is True otherwise False
+    Return:
+        pairs: Tuple (query_idx, db_idx, score)
+    """
     assert scores.shape == invalid.shape
     if isinstance(scores, np.ndarray):
         scores = torch.from_numpy(scores)
     invalid = torch.from_numpy(invalid).to(scores.device)
+    
     if min_score is not None:
-        invalid |= scores < min_score
+        # invalid |= scores < min_score
+        invalid.logical_or_(scores < min_score)
+
     scores.masked_fill_(invalid, float("-inf"))
 
     topk = torch.topk(scores, num_select, dim=1)
     indices = topk.indices.cpu().numpy()
-    valid = topk.values.isfinite().cpu().numpy()
-
+    # valid = topk.values.isfinite().cpu().numpy()
+    scores_topk = topk.values.cpu().numpy()         # new (add scores_topk)
+    valid = np.isfinite(scores_topk)
+    
     pairs = []
-    for i, j in zip(*np.where(valid)):
-        pairs.append((i, indices[i, j]))
+    for row, col in zip(*np.where(valid)):
+        score = scores_topk[row, col]
+        # (query_idx, db_idx, score)
+        pairs.append((row, indices[row, col], score))
     return pairs
 
 
@@ -81,6 +95,7 @@ def main(
     db_list=None,
     db_model=None,
     db_descriptors=None,
+    query_score:float=0.0,    # minimum score for a pair to query(1.0~0.0)
 ):
     logger.info("Extracting image pairs from a retrieval database.")
 
@@ -90,9 +105,11 @@ def main(
         db_descriptors = descriptors
     if isinstance(db_descriptors, (Path, str)):
         db_descriptors = [db_descriptors]
+    
     name2db = {n: i for i, p in enumerate(db_descriptors) for n in list_h5_names(p)}
     db_names_h5 = list(name2db.keys())
     query_names_h5 = list_h5_names(descriptors)
+
 
     if db_model:
         images = read_images_binary(db_model / "images.bin")
@@ -102,20 +119,35 @@ def main(
     if len(db_names) == 0:
         raise ValueError("Could not find any database image.")
     query_names = parse_names(query_prefix, query_list, query_names_h5)
+    logger.info(f"Matching {len(query_names)} query images to {len(db_names)} database images.")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     db_desc = get_descriptors(db_names, db_descriptors, name2db)
     query_desc = get_descriptors(query_names, descriptors)
+    logger.info(f"Matching {query_desc.shape} query images to {db_desc.shape} database images.")
+
     sim = torch.einsum("id,jd->ij", query_desc.to(device), db_desc.to(device))
+    print("score: ", sim.shape)
+    
 
     # Avoid self-matching
     self = np.array(query_names)[:, None] == np.array(db_names)[None]
-    pairs = pairs_from_score_matrix(sim, self, num_matched, min_score=0)
-    pairs = [(query_names[i], db_names[j]) for i, j in pairs]
-
+    # print(">>", self.shape, self)
+    pairs = pairs_from_score_matrix(sim, self, num_matched, min_score=query_score)
     logger.info(f"Found {len(pairs)} pairs.")
-    with open(output, "w") as f:
-        f.write("\n".join(" ".join([i, j]) for i, j in pairs))
+    for i, j, s in pairs:
+            print(f"query:{query_names[i]}, db:{db_names[j]}, {s}")
+
+    if set(query_names) != set(db_names):
+        logger.info(f"In query mode")
+        pairs_np = np.array(pairs)
+        if len(pairs_np) == 0:
+            return None
+        sort_np = pairs_np[pairs_np[:, -1].argsort()]
+        # print("Best pair: ", sort_np[-1])
+        best = (query_names[int(sort_np[-1][0])], db_names[int(sort_np[-1][1])], sort_np[-1][-1])
+        return best
+    
 
 
 if __name__ == "__main__":

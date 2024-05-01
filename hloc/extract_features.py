@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Union
 
 import cv2
 import h5py
+import pickle
 import numpy as np
 import PIL.Image
 import torch
@@ -222,6 +223,7 @@ class ImageDataset(torch.utils.data.Dataset):
 def main(
     conf: Dict,
     image_dir: Path,
+    mode: str,                              # new (train/test)
     export_dir: Optional[Path] = None,
     as_half: bool = True,
     image_list: Optional[Union[Path, List[str]]] = None,
@@ -234,12 +236,15 @@ def main(
 
     dataset = ImageDataset(image_dir, conf["preprocessing"], image_list)
     if feature_path is None:
-        feature_path = Path(export_dir, conf["output"] + ".h5")
+        feature_path = Path(export_dir, conf["output"]+ f"-{mode}.h5")
     feature_path.parent.mkdir(exist_ok=True, parents=True)
     skip_names = set(
         list_h5_names(feature_path) if feature_path.exists() and not overwrite else ()
     )
+    
     dataset.names = [n for n in dataset.names if n not in skip_names]
+    add_names = {str(name) for name in dataset.names}
+    logger.info(f"New to h5: {len(add_names)} images.")
     if len(dataset.names) == 0:
         logger.info("Skipping the extraction.")
         return feature_path
@@ -272,6 +277,7 @@ def main(
                 if (dt == np.float32) and (dt != np.float16):
                     pred[k] = pred[k].astype(np.float16)
 
+        
         with h5py.File(str(feature_path), "a", libver="latest") as fd:
             try:
                 if name in fd:
@@ -293,6 +299,10 @@ def main(
         del pred
 
     logger.info("Finished exporting features.")
+    # new_el_path = Path(export_dir , 'new_elements.pkl')
+    # with open(new_el_path, 'wb') as file:
+    #     pickle.dump(add_names, file)
+
     return feature_path
 
 
@@ -307,4 +317,9 @@ if __name__ == "__main__":
     parser.add_argument("--image_list", type=Path)
     parser.add_argument("--feature_path", type=Path)
     args = parser.parse_args()
+
+    '''
+    Ex.
+    retrieval_path_train = extract_features.main(retrieval_conf, images_train, outputs)
+    '''
     main(confs[args.conf], args.image_dir, args.export_dir, args.as_half)
