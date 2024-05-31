@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Union
 
+
 import cv2
 import h5py
 import pickle
@@ -220,10 +221,56 @@ class ImageDataset(torch.utils.data.Dataset):
 
 
 @torch.no_grad()
+def single_image(
+    conf: Dict,
+    image_path: Path,
+    as_half: bool = True) -> Dict:
+    logger.info(
+        "Extracting local features with configuration:" f"\n{pprint.pformat(conf)}"
+    )
+
+    dataset = ImageDataset(image_path.parent, conf["preprocessing"], [image_path])
+    if len(dataset) == 0:
+        logger.error(f"Image {image_path} not found or could not be loaded.")
+        return {}
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    Model = dynamic_load(extractors, conf["model"]["name"])
+    model = Model(conf["model"]).eval().to(device)
+
+    loader = torch.utils.data.DataLoader(dataset, num_workers=1, shuffle=False, pin_memory=True)
+    if isinstance(loader, collections.Iterable):
+        data = next(iter(loader))
+    else:
+        data = loader
+
+    pred = model({"image": data["image"].to(device, non_blocking=True)})
+    pred = {k: v[0].cpu().numpy() for k, v in pred.items()}
+    pred["image_size"] = original_size = data["original_size"][0].numpy()
+    
+    if "keypoints" in pred:
+            size = np.array(data["image"].shape[-2:][::-1])
+            scales = (original_size / size).astype(np.float32)
+            pred["keypoints"] = (pred["keypoints"] + 0.5) * scales[None] - 0.5
+            if "scales" in pred:
+                pred["scales"] *= scales.mean()
+            # add keypoint uncertainties scaled to the original resolution
+            uncertainty = getattr(model, "detection_noise", 1) * scales.mean()
+
+    if as_half:
+        for k in pred:
+            dt = pred[k].dtype
+            if (dt == np.float32) and (dt != np.float16):
+                pred[k] = pred[k].astype(np.float16)
+
+    logger.info(f"Finished extracting features for image: {image_path}")
+    return pred
+
+
+@torch.no_grad()
 def main(
     conf: Dict,
     image_dir: Path,
-    mode: str,                              # new (train/test)
     export_dir: Optional[Path] = None,
     as_half: bool = True,
     image_list: Optional[Union[Path, List[str]]] = None,
@@ -236,12 +283,12 @@ def main(
 
     dataset = ImageDataset(image_dir, conf["preprocessing"], image_list)
     if feature_path is None:
-        feature_path = Path(export_dir, conf["output"]+ f"-{mode}.h5")
+        feature_path = Path(export_dir, conf["output"] + ".h5")
     feature_path.parent.mkdir(exist_ok=True, parents=True)
     skip_names = set(
         list_h5_names(feature_path) if feature_path.exists() and not overwrite else ()
     )
-    
+
     dataset.names = [n for n in dataset.names if n not in skip_names]
     add_names = {str(name) for name in dataset.names}
     logger.info(f"New to h5: {len(add_names)} images.")
@@ -277,7 +324,6 @@ def main(
                 if (dt == np.float32) and (dt != np.float16):
                     pred[k] = pred[k].astype(np.float16)
 
-        
         with h5py.File(str(feature_path), "a", libver="latest") as fd:
             try:
                 if name in fd:
@@ -299,11 +345,8 @@ def main(
         del pred
 
     logger.info("Finished exporting features.")
-    # new_el_path = Path(export_dir , 'new_elements.pkl')
-    # with open(new_el_path, 'wb') as file:
-    #     pickle.dump(add_names, file)
-
     return feature_path
+
 
 
 if __name__ == "__main__":
