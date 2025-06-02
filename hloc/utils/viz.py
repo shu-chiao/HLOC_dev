@@ -69,7 +69,8 @@ def plot_matches(kpts0, kpts1, color=None, lw=1.5, ps=4, indices=(0, 1), a=1.0):
     """Plot matches for a pair of existing images.
     Args:
         kpts0, kpts1: corresponding keypoints of size (N, 2).
-        color: color of each match, string or RGB tuple. Random if not given.
+        color: color of each match, string or RGB tuple. Random if not given. 
+               (New: cm object)
         lw: width of the lines.
         ps: size of the end points (no endpoint if ps=0)
         indices: indices of the images to draw the matches on.
@@ -84,8 +85,11 @@ def plot_matches(kpts0, kpts1, color=None, lw=1.5, ps=4, indices=(0, 1), a=1.0):
     assert len(kpts0) == len(kpts1)
     if color is None:
         color = matplotlib.cm.hsv(np.random.rand(len(kpts0))).tolist()
+    elif isinstance(color, np.ndarray) and len(color.shape) == 2:
+        color = color
     elif len(color) > 0 and not isinstance(color[0], (tuple, list)):
         color = [color] * len(kpts0)
+    
 
     if lw > 0:
         # transform the points into the figure coordinate system

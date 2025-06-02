@@ -162,3 +162,41 @@ def visualize_loc_from_log(
         opts = dict(pos=(0.01, 0.01), fs=5, lcolor=None, va="bottom")
         add_text(0, query_name, **opts)
         add_text(1, db_name, **opts)
+
+
+def visualize_core(
+        image0,
+        image1,
+        keypoints0,
+        keypoints1,
+        matches0,
+        matches1,
+        scores0,
+        scores1):
+    
+
+    # plot the two images
+    plot_images([image0, image1])
+
+    # plot the keypoints
+    assert len(keypoints0.shape) == 2 and keypoints0.shape[1] == 2, f"Wrong shape for keypoints0: {keypoints0.shape}"
+    assert len(keypoints1.shape) == 2 and keypoints1.shape[1] == 2, f"Wrong shape for keypoints1: {keypoints1.shape}"
+    plot_keypoints([keypoints0, keypoints1])
+
+    # plot the matches
+    inx0 = np.where(matches0 != -1)
+    val0 = matches0[inx0]
+    val1 = matches1[val0]
+
+    if np.array_equal(val1, inx0[0]):
+        print("Matches are correct")
+    else:
+        print("Matches are incorrect")
+        return
+
+    score_match = scores0[inx0]
+    normalized_scores = (score_match - np.min(score_match)) / (np.max(score_match) - np.min(score_match))
+    colors = cm.jet(normalized_scores)
+    plot_matches(keypoints0[inx0], keypoints1[val0], color=colors, lw=0.5)
+
+    return keypoints0[inx0], keypoints1[val0]

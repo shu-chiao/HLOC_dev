@@ -138,6 +138,34 @@ class FeaturePairsDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.pairs)
+    
+class FeaturePairsDatasetPred(torch.utils.data.Dataset):
+    def __init__(self, pairs, pred_q, pred_r):
+        self.pairs = pairs
+        self.pred_q = pred_q
+        self.pred_r = pred_r
+
+    def __getitem__(self, idx):
+        name0, name1 = self.pairs[idx]
+        data = {}
+
+        # Query features
+        grp_q = self.pred_q[name0]
+        for k, v in grp_q.items():
+            data[k + "0"] = torch.from_numpy(v).float()
+        # Some matchers might expect an image but only use its size
+        data["image0"] = torch.empty((1,) + tuple(grp_q["image_size"])[::-1])
+
+        # Reference features
+        grp_r = self.pred_r[name1]
+        for k, v in grp_r.items():
+            data[k + "1"] = torch.from_numpy(v).float()
+        data["image1"] = torch.empty((1,) + tuple(grp_r["image_size"])[::-1])
+
+        return data
+
+    def __len__(self):
+        return len(self.pairs)
 
 
 def writer_fn(inp, match_path):
@@ -249,11 +277,53 @@ def match_from_paths(
             k: v if k.startswith("image") else v.to(device, non_blocking=True)
             for k, v in data.items()
         }
+        
         pred = model(data)
         pair = names_to_pair(*pairs[idx])
         writer_queue.put((pair, pred))
     writer_queue.join()
     logger.info("Finished exporting matches.")
+
+
+@torch.no_grad()
+def match_from_features(conf: list,
+                        pairs: list[tuple],
+                        preds: dict,):
+    """
+    Args:
+        conf
+        pairs
+        preds
+    Returns:
+        pairs_match: list of tuples (matches, pair_name) ver. 1
+        pairs_match: list of matches ver. 2
+    """
+    logger.info(
+        "Matching local features with configuration:" f"\n{pprint.pformat(conf)}"
+    )
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    Model = dynamic_load(matchers, conf["model"]["name"])
+    model = Model(conf["model"]).eval().to(device)
+
+    dataset = FeaturePairsDatasetPred(pairs, preds['q'], preds['r'])
+    loader = torch.utils.data.DataLoader(
+        dataset, num_workers=5, batch_size=1, shuffle=False, pin_memory=True
+    )
+    
+    pairs_match = []
+    for idx, data in enumerate(tqdm(loader, smoothing=0.1)):
+        data = {
+            k: v if k.startswith("image") else v.to(device, non_blocking=True)
+            for k, v in data.items()
+        }
+        logger.info(f"Data: {data.keys()}")
+        _match = model(data)
+        # _name = names_to_pair(*pairs[idx])
+        # pairs_match.append((_match, _name))
+        pairs_match.append(_match)
+        
+    return pairs_match
 
 
 if __name__ == "__main__":

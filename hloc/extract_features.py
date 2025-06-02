@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Union
 
-
+import os
 import cv2
 import h5py
 import pickle
@@ -224,7 +224,8 @@ class ImageDataset(torch.utils.data.Dataset):
 def single_image(
     conf: Dict,
     image_path: Path,
-    as_half: bool = True) -> Dict:
+    as_half: bool = True,
+    to_h5: bool = False) -> Dict:
     logger.info(
         "Extracting local features with configuration:" f"\n{pprint.pformat(conf)}"
     )
@@ -262,6 +263,24 @@ def single_image(
             dt = pred[k].dtype
             if (dt == np.float32) and (dt != np.float16):
                 pred[k] = pred[k].astype(np.float16)
+
+    if to_h5:
+        w_file = Path(image_path.parent, conf["output"] + ".h5")
+        with h5py.File(w_file, "a", libver="latest") as fd:
+            try:
+                for k, v in pred.items():
+                    fd.create_dataset(k, data=v)
+                if "keypoints" in pred:
+                    fd["keypoints"].attrs["uncertainty"] = uncertainty
+            except OSError as error:
+                if "No space left on device" in error.args[0]:
+                    logger.error(
+                        "Out of disk space: storing features on disk can take "
+                        "significant space, did you enable the as_half flag?"
+                    )
+                raise error
+        
+        return w_file
 
     logger.info(f"Finished extracting features for image: {image_path}")
     return pred
