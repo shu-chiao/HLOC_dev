@@ -116,6 +116,17 @@ confs = {
             "resize_max": 1600,
         },
     },
+    "aliked-n16": {
+        "output": "feats-aliked-n16",
+        "model": {
+            "name": "aliked",
+            "model_name": "aliked-n16",
+        },
+        "preprocessing": {
+            "grayscale": False,
+            "resize_max": 1024,
+        },
+    },
     # Global descriptors
     "dir": {
         "output": "global-feats-dir",
@@ -132,9 +143,9 @@ confs = {
         "model": {"name": "openibl"},
         "preprocessing": {"resize_max": 1024},
     },
-    "eigenplaces": {
-        "output": "global-feats-eigenplaces",
-        "model": {"name": "eigenplaces"},
+    "megaloc": {
+        "output": "global-feats-megaloc",
+        "model": {"name": "megaloc"},
         "preprocessing": {"resize_max": 1024},
     },
 }
@@ -380,8 +391,12 @@ if __name__ == "__main__":
     parser.add_argument("--feature_path", type=Path)
     args = parser.parse_args()
 
-    '''
-    Ex.
-    retrieval_path_train = extract_features.main(retrieval_conf, images_train, outputs)
-    '''
-    main(confs[args.conf], args.image_dir, args.export_dir, args.as_half)
+    main(
+        confs[args.conf],
+        args.image_dir,
+        args.export_dir,
+        args.as_half,
+        args.image_list,
+        args.feature_path,
+    )
+
